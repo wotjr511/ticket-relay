@@ -1,6 +1,6 @@
 # TicketRelayProcessor
 
-TicketRelayProcessor는 Python 3.9 이상에서 실행되는 Windows 전용 백엔드 프로세스입니다.
+TicketRelayProcessor는 Python 3.9 이상에서 실행되는 백엔드 프로세스입니다.
 지정된 폴더를 주기적으로 감시하면서 티켓 JSON 파일을 읽고, 대상 API가 정상 상태일 때만 티켓 데이터를 전달합니다.
 
 ## 프로젝트 구조

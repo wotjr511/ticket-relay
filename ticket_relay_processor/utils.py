@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Union
 
 
-def setup_logging(log_file: Path | str = "ticket_relay_processor.log") -> None:
+def setup_logging(log_file: Union[Path, str] = "ticket_relay_processor.log") -> None:
     """Configure console and file logging for the processor."""
 
     log_path = Path(log_file)

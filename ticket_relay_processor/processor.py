@@ -11,6 +11,7 @@ from pathlib import Path
 from api_health_checker import ApiHealthChecker
 from config import Config
 from ticket_forwarder import TicketForwarder
+from ticket_logger import TicketLogger
 from ticket_watcher import TicketWatcher
 
 LOGGER = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ class TicketRelayProcessor:
         self.health_checker = ApiHealthChecker(
             health_check_url=config.api.health_check_url,
             timeout=config.api.timeout,
+        )
+        self.ticket_logger = TicketLogger(
+            log_dir=config.logging.log_dir,
+            log_level=config.logging.log_level,
         )
         self.forwarder = TicketForwarder(
             target_url=config.api.target_url,
@@ -77,8 +82,19 @@ class TicketRelayProcessor:
         """Forward a single ticket file and mark it for retry when needed."""
 
         LOGGER.info("Discovered ticket file: %s", ticket_file)
-        success = self.forwarder.forward_file(ticket_file)
-        if not success:
+        result = self.forwarder.forward_file(ticket_file)
+        self.ticket_logger.log_processing_result(
+            ticket_id=result.ticket_id,
+            filename=result.filename,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            success=result.success,
+            api_status_code=result.api_status_code,
+            api_message=result.api_message,
+            error_message=result.error_message,
+            ticket_content=result.ticket_content,
+        )
+        if result.should_retry:
             self.watcher.mark_unprocessed(ticket_file)
 
     def _handle_shutdown_signal(self, signum: int, _frame: object) -> None:

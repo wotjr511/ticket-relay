@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 import requests
 from requests import Session
@@ -13,7 +14,12 @@ LOGGER = logging.getLogger(__name__)
 class ApiHealthChecker:
     """Perform health checks against the configured API endpoint."""
 
-    def __init__(self, health_check_url: str, timeout: float, session: Session | None = None) -> None:
+    def __init__(
+        self,
+        health_check_url: str,
+        timeout: float,
+        session: Optional[Session] = None,
+    ) -> None:
         """Create a health checker for a URL."""
 
         self.health_check_url = health_check_url

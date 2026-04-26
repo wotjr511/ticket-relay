@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import requests
 from requests import Session
@@ -20,6 +22,22 @@ class TicketParseError(ValueError):
     """Raised when a ticket file cannot be parsed."""
 
 
+@dataclass(frozen=True)
+class TicketForwardResult:
+    """Detailed result for one ticket forwarding attempt."""
+
+    filename: str
+    start_time: datetime
+    end_time: datetime
+    success: bool
+    should_retry: bool
+    ticket_id: Optional[str] = None
+    api_status_code: Optional[int] = None
+    api_message: Optional[str] = None
+    error_message: Optional[str] = None
+    ticket_content: Optional[dict[str, Any]] = None
+
+
 class TicketForwarder:
     """Parse ticket files and forward them to a healthy API endpoint."""
 
@@ -29,7 +47,7 @@ class TicketForwarder:
         timeout: float,
         max_retries: int,
         health_checker: ApiHealthChecker,
-        session: Session | None = None,
+        session: Optional[Session] = None,
     ) -> None:
         """Create a forwarder with retry behavior and health checking."""
 
@@ -39,20 +57,34 @@ class TicketForwarder:
         self.health_checker = health_checker
         self.session = session or requests.Session()
 
-    def forward_file(self, path: Path) -> bool:
+    def forward_file(self, path: Path) -> TicketForwardResult:
         """Parse a ticket file and forward it if the target API is healthy."""
+
+        start_time = datetime.now(timezone.utc)
 
         if not self.health_checker.is_healthy():
             LOGGER.warning("API is unhealthy; ticket will be retried later: %s", path)
-            return False
+            return self._build_result(
+                path=path,
+                start_time=start_time,
+                success=False,
+                should_retry=True,
+                error_message="API health check failed",
+            )
 
         try:
             payload = self.parse_ticket(path)
         except TicketParseError as exc:
             LOGGER.error("Unable to parse ticket file %s: %s", path, exc)
-            return True
+            return self._build_result(
+                path=path,
+                start_time=start_time,
+                success=False,
+                should_retry=False,
+                error_message=str(exc),
+            )
 
-        return self._post_with_retries(payload, path)
+        return self._post_with_retries(payload, path, start_time)
 
     def parse_ticket(self, path: Path) -> dict[str, Any]:
         """Parse a JSON ticket file into a dictionary payload."""
@@ -74,10 +106,19 @@ class TicketForwarder:
 
         return data
 
-    def _post_with_retries(self, payload: dict[str, Any], source_path: Path) -> bool:
+    def _post_with_retries(
+        self,
+        payload: dict[str, Any],
+        source_path: Path,
+        start_time: datetime,
+    ) -> TicketForwardResult:
         """POST a parsed ticket payload with exponential backoff retries."""
 
         attempts = self.max_retries + 1
+        last_status_code: Optional[int] = None
+        last_api_message: Optional[str] = None
+        last_error_message: Optional[str] = None
+
         for attempt in range(1, attempts + 1):
             try:
                 response = self.session.post(
@@ -85,9 +126,19 @@ class TicketForwarder:
                     json=payload,
                     timeout=self.timeout,
                 )
+                last_status_code = response.status_code
+                last_api_message = response.text[:500]
                 if 200 <= response.status_code < 300:
                     LOGGER.info("Forwarded ticket %s from %s", payload.get("ticket_id"), source_path)
-                    return True
+                    return self._build_result(
+                        path=source_path,
+                        start_time=start_time,
+                        success=True,
+                        should_retry=False,
+                        payload=payload,
+                        api_status_code=response.status_code,
+                        api_message=response.text[:500],
+                    )
 
                 LOGGER.warning(
                     "Forward attempt %s/%s failed for %s with status %s: %s",
@@ -97,7 +148,9 @@ class TicketForwarder:
                     response.status_code,
                     response.text[:500],
                 )
+                last_error_message = f"Target API returned status {response.status_code}"
             except requests.RequestException as exc:
+                last_error_message = str(exc)
                 LOGGER.warning(
                     "Forward attempt %s/%s failed for %s: %s",
                     attempt,
@@ -110,4 +163,41 @@ class TicketForwarder:
                 time.sleep(min(2 ** (attempt - 1), 30))
 
         LOGGER.error("Exhausted retries for ticket file: %s", source_path)
-        return False
+        return self._build_result(
+            path=source_path,
+            start_time=start_time,
+            success=False,
+            should_retry=True,
+            payload=payload,
+            api_status_code=last_status_code,
+            api_message=last_api_message,
+            error_message=last_error_message or "Exhausted retries",
+        )
+
+    def _build_result(
+        self,
+        *,
+        path: Path,
+        start_time: datetime,
+        success: bool,
+        should_retry: bool,
+        payload: Optional[dict[str, Any]] = None,
+        api_status_code: Optional[int] = None,
+        api_message: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> TicketForwardResult:
+        """Create a structured forwarding result with completion timing."""
+
+        ticket_id = payload.get("ticket_id") if payload else None
+        return TicketForwardResult(
+            filename=str(path),
+            start_time=start_time,
+            end_time=datetime.now(timezone.utc),
+            success=success,
+            should_retry=should_retry,
+            ticket_id=str(ticket_id) if ticket_id is not None else None,
+            api_status_code=api_status_code,
+            api_message=api_message,
+            error_message=error_message,
+            ticket_content=payload,
+        )

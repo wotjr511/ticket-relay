@@ -33,6 +33,9 @@ dist/
 *.log
 *.log.*
 logs/
+!ticket_relay_processor/logs/
+ticket_relay_processor/logs/*
+!ticket_relay_processor/logs/.gitkeep
 *.txt.log
 
 # ========================================

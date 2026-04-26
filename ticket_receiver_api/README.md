@@ -1,10 +1,9 @@
 # TicketReceiverAPI
 
-TicketReceiverAPI is a lightweight FastAPI service that receives ticket JSON payloads, dispatches them to one of 12 type-specific handlers, and returns a success response after processing. It also exposes a health check endpoint for uptime checks and upstream relay systems.
+TicketReceiverAPI는 Relay Processor로부터 전달받은 JSON 티켓을 수신하여, `type` 값에 따라 12개의 전용 핸들러 중 하나로 라우팅하여 처리한 후 성공 응답을 반환하는 경량 FastAPI 서비스입니다. Health Check 엔드포인트도 제공하여 업스트림 시스템에서 상태를 확인할 수 있습니다.
 
-## Project Structure
+## 프로젝트 구조
 
-```text
 ticket_receiver_api/
 ├── main.py
 ├── config.py
@@ -15,180 +14,61 @@ ticket_receiver_api/
 ├── requirements.txt
 ├── README.md
 └── .env.example
-```
 
-## Installation
+## 설치 방법 (Windows)
 
-```bash
 cd ticket_receiver_api
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-On macOS or Linux:
+## 설정 (Configuration)
 
-```bash
-source .venv/bin/activate
-```
+환경 변수로 설정을 관리하며, pydantic-settings를 사용합니다. 모든 변수는 TICKET_RECEIVER_ 접두사를 가집니다.
 
-## Configuration
+.env.example 파일을 복사하여 사용하세요:
 
-Configuration is read from environment variables using `pydantic-settings`. Variables are prefixed with `TICKET_RECEIVER_`.
-
-Copy the example file for local development:
-
-```bash
 copy .env.example .env
-```
 
-On macOS or Linux:
+### 주요 설정 항목
 
-```bash
-cp .env.example .env
-```
+- TICKET_RECEIVER_HOST: 서버 바인딩 호스트 (기본값: 0.0.0.0)
+- TICKET_RECEIVER_PORT: 서버 포트 (기본값: 8000)
+- TICKET_RECEIVER_LOG_LEVEL: 로그 레벨 (기본값: INFO)
+- TICKET_RECEIVER_LOG_FILE: 로그 파일 경로 (기본값: ticket_receiver_api.log)
+- TICKET_RECEIVER_CORS_ORIGINS: CORS 허용 Origin (기본값: *)
+- TICKET_RECEIVER_RELOAD: 개발용 reload 활성화 (기본값: false)
 
-Available settings:
+## 실행 방법
 
-- `TICKET_RECEIVER_HOST`: Server bind host. Default: `0.0.0.0`
-- `TICKET_RECEIVER_PORT`: Server bind port. Default: `8000`
-- `TICKET_RECEIVER_LOG_LEVEL`: Logging level. Default: `INFO`
-- `TICKET_RECEIVER_LOG_FILE`: File log path. Default: `ticket_receiver_api.log`
-- `TICKET_RECEIVER_CORS_ORIGINS`: Comma-separated CORS origins. Default: `*`
-- `TICKET_RECEIVER_RELOAD`: Enable Uvicorn reload for local development. Default: `false`
-
-## Running
-
-```bash
 python main.py
-```
 
-Or run with Uvicorn directly:
+또는 uvicorn 직접 실행:
 
-```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
-```
 
-API docs are available at:
+API 문서는 다음 주소에서 확인할 수 있습니다:
+- http://localhost:8000/docs
+- http://localhost:8000/redoc
 
-- `http://localhost:8000/docs`
-- `http://localhost:8000/redoc`
-
-## Endpoints
+## 주요 엔드포인트
 
 ### GET /health
 
-Returns service health and a UTC timestamp.
-
-```bash
 curl http://localhost:8000/health
-```
-
-Example response:
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-04-25T14:00:00.000000Z"
-}
-```
 
 ### POST /tickets
 
-Receives a flexible JSON ticket payload. The only required field is `type`, which can be an integer or an integer-like string from `1` through `12`.
-
-```bash
 curl -X POST http://localhost:8000/tickets ^
   -H "Content-Type: application/json" ^
   -d "{\"type\": 3, \"title\": \"Sample Ticket\", \"data\": {\"source\": \"relay\"}}"
-```
-
-On macOS or Linux:
-
-```bash
-curl -X POST http://localhost:8000/tickets \
-  -H "Content-Type: application/json" \
-  -d '{"type": 3, "title": "Sample Ticket", "data": {"source": "relay"}}'
-```
-
-Example response:
-
-```json
-{
-  "status": "success",
-  "message": "Ticket processed successfully",
-  "type": 3,
-  "ticket_id": "5ec78f63-d775-4d50-ad32-af44f84b40fa"
-}
-```
-
-If `ticket_id` is not provided, the API generates one automatically. Extra fields are accepted and passed to the selected handler.
-
-## Example Ticket Type Requests
-
-Type `1`:
-
-```bash
-curl -X POST http://localhost:8000/tickets -H "Content-Type: application/json" -d "{\"type\": 1, \"title\": \"Login issue\"}"
-```
-
-Type `6`:
-
-```bash
-curl -X POST http://localhost:8000/tickets -H "Content-Type: application/json" -d "{\"type\": 6, \"title\": \"Billing update\", \"data\": {\"account_id\": \"A-100\"}}"
-```
-
-Type `12` as a string:
-
-```bash
-curl -X POST http://localhost:8000/tickets -H "Content-Type: application/json" -d "{\"type\": \"12\", \"title\": \"Escalation\"}"
-```
-
-Unknown type:
-
-```bash
-curl -X POST http://localhost:8000/tickets -H "Content-Type: application/json" -d "{\"type\": 99, \"title\": \"Unknown\"}"
-```
-
-Returns HTTP `400 Bad Request`.
 
 ## Dispatcher Pattern
 
-`dispatcher.py` contains a `TicketDispatcher` class with a dictionary mapping normalized ticket types to handler functions:
+dispatcher.py에서 TicketDispatcher 클래스가 type 값을 기준으로 12개의 핸들러(handle_type_1 ~ handle_type_12) 중 하나를 선택하여 호출합니다.
 
-```python
-{
-    1: handle_type_1,
-    2: handle_type_2,
-    ...
-    12: handle_type_12,
-}
-```
+handlers.py에 각 타입별 실제 처리 로직을 구현하시면 됩니다.
 
-When `POST /tickets` receives a payload, the API:
+## 로깅
 
-1. Validates that a `type` field exists.
-2. Converts integer-like strings such as `"3"` into integer type keys.
-3. Looks up the corresponding handler in the dispatcher dictionary.
-4. Calls the handler with the full ticket dictionary.
-5. Returns a standard success response.
-
-Each handler is defined in `handlers.py` as `handle_type_1()` through `handle_type_12()`. The handlers currently contain placeholder processing, log the ticket, and return a result dictionary. This keeps the structure production-ready while leaving clear extension points for real business logic.
-
-## Logging
-
-Logs are written to both stdout and the configured log file. The default format is:
-
-```text
-2026-04-25 14:00:00 | INFO     | main | TicketReceiverAPI starting
-```
-
-For long-running production deployments, configure log rotation with your process manager, container runtime, or platform logging system.
-
-## Production Notes
-
-- Run behind a reverse proxy or API gateway for TLS termination and request limits.
-- Use explicit CORS origins instead of `*` when serving browser clients in production. Credentialed CORS requests are enabled only when origins are explicit.
-- Run with a process manager such as systemd, Supervisor, Docker, Kubernetes, or a managed platform.
-- Keep `TICKET_RECEIVER_RELOAD=false` in production.
-- Add authentication before exposing the API publicly.
+로그는 콘솔과 설정된 로그 파일에 동시에 기록됩니다.
